@@ -1,35 +1,41 @@
-// Ortalama modül uzunlukları (core + filter ortalaması)
-// Gate'li yapıya göre yaklaşık değerler
-const MODULE_AVG_LENGTH = {
-  grapheme_color: 5,
-  sound_color: 4,
-  time_space: 5,
-  sound_taste_smell: 4,
-  mirror_touch: 4,
-  person_color_shape: 4,
-  taste_color_shape: 5,
-  smell_color_shape: 4,
-  emotion_color_shape: 4,
-  misophonia: 3
-};
+export function estimateProgress(tree, answers) {
+  const { nodesMap } = tree;
 
-export function estimateRemainingQuestions(history, nodesMap) {
-  const answeredModules = new Set();
+  let answered = Object.keys(answers).length;
+  let reachable = 0;
 
-  history.forEach((id) => {
-    const node = nodesMap.get(id);
-    if (node?.type === "question") {
-      answeredModules.add(node.module);
+  for (const node of nodesMap.values()) {
+    if (node.type !== "question") continue;
+
+    // Ana sorular her zaman sayılır
+    if (node.phase === "main") {
+      reachable += 1;
+      continue;
     }
-  });
 
-  let estimate = 0;
+    // Filtre soruları: gate açıldıysa say
+    if (node.phase === "filter") {
+      const gateModule = node.module;
+      const moduleAnswers = Object.entries(answers)
+        .filter(([qid]) => {
+          const q = nodesMap.get(qid);
+          return q && q.module === gateModule && q.phase === "main";
+        })
+        .map(([, v]) => v);
 
-  for (const [mod, avg] of Object.entries(MODULE_AVG_LENGTH)) {
-    if (!answeredModules.has(mod)) {
-      estimate += avg;
+      const avg =
+        moduleAnswers.length > 0
+          ? moduleAnswers.reduce((a, b) => a + b, 0) /
+            (moduleAnswers.length * 4)
+          : 0;
+
+      if (avg >= 0.65) reachable += 1;
     }
   }
 
-  return Math.max(estimate, 0);
+  return {
+    answered,
+    reachable,
+    progress: reachable > 0 ? answered / reachable : 0
+  };
 }

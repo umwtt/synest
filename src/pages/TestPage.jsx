@@ -1,11 +1,26 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadTree, resolveNextId } from "../logic/behaviourTreeEngine";
-import { createEmptyScores, accumulateScore } from "../logic/scoring";
 import QuestionCard from "../components/ui/QuestionCard";
-import { estimateRemainingQuestions } from "../logic/progress";
+import { evaluateResults } from "../logic/scoring";
+import { estimateProgress } from "../logic/progress";
 
 const tree = loadTree();
+
+function estimateRemainingQuestions(history, nodesMap) {
+  // Gate’ler olduğu için bu sadece yaklaşık bir tahmin
+  const visited = new Set(history);
+
+  let count = 0;
+  nodesMap.forEach((node, id) => {
+    if (node.type === "question" && !visited.has(id)) {
+      count += 1;
+    }
+  });
+
+  return count;
+}
+
 
 function nextQuestionIdFrom(currentQuestionId, answers, nodesMap) {
   let safety = 0;
@@ -41,17 +56,6 @@ function nextQuestionIdFrom(currentQuestionId, answers, nodesMap) {
   return null;
 }
 
-function recomputeScoresFromAnswers(historyIds, answers, nodesMap) {
-  let acc = createEmptyScores();
-  historyIds.forEach((id) => {
-    const node = nodesMap.get(id);
-    const value = answers[id];
-    if (node && node.type === "question" && value != null) {
-      acc = accumulateScore(acc, node, value);
-    }
-  });
-  return acc;
-}
 
 function ConsentDialog({ onAccept }) {
   return (
@@ -91,7 +95,6 @@ function TestPage() {
 
   const [history, setHistory] = useState([tree.startNodeId]);
   const [answers, setAnswers] = useState({});
-  const [scores, setScores] = useState(createEmptyScores()); // şimdilik sadece sonuç için
   const [consentGiven, setConsentGiven] = useState(false);
 
   const step = history.length - 1;
@@ -115,42 +118,34 @@ function TestPage() {
   const progressExact =
     answeredCount / (answeredCount + (estimatedRemaining || 0) || 1);
 
-  function goToResult(finalScores, finalAnswers) {
+  function goToResult(finalAnswers) {
+    const report = evaluateResults(finalAnswers, tree);
+
     navigate("/result", {
       state: {
-        scores: finalScores,
-        answers: finalAnswers
+        answers: finalAnswers,
+        report
       }
     });
   }
 
+
   function handleSubmitAnswer() {
     if (!consentGiven) return;
     if (!currentNode || currentNode.type !== "question") return;
-
     const v = currentAnswer;
     if (v == null) return;
-
     const nodesMap = tree.nodesMap;
-
-    // ✅ kritik: local answers
     const nextAnswers = { ...answers, [currentId]: v };
-
     const nextId = nextQuestionIdFrom(currentId, nextAnswers, nodesMap);
-
     if (!nextId) {
-      const finalScores = recomputeScoresFromAnswers(history, nextAnswers, nodesMap);
-      goToResult(finalScores, nextAnswers);
+      goToResult(nextAnswers);
       return;
     }
-
-    const newHistory = [...history, nextId];
-    const newScores = recomputeScoresFromAnswers(newHistory, nextAnswers, nodesMap);
-
     setAnswers(nextAnswers);
-    setHistory(newHistory);
-    setScores(newScores);
-  }
+    setHistory([...history, nextId]);
+ }
+
 
   function handleGoBack() {
     if (history.length <= 1) return;
@@ -162,11 +157,8 @@ function TestPage() {
     const newAnswers = { ...answers };
     delete newAnswers[lastId];
 
-    const newScores = recomputeScoresFromAnswers(newHistory, newAnswers, nodesMap);
-
     setHistory(newHistory);
     setAnswers(newAnswers);
-    setScores(newScores);
   }
 
   function handleChangeAnswer(value) {

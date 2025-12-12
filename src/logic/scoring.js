@@ -1,116 +1,166 @@
-const MODULES = [
-  "grapheme_color",
-  "sound_color",
-  "time_space",
-  "sound_taste_smell",
-  "mirror_touch",
-  "person_color_shape",
-  "taste_color_shape",
-  "smell_color_shape",
-  "emotion_color_shape",
-  "misophonia"
-];
+// src/logic/scoring.js
 
-export function createEmptyScores() {
-  const modules = {};
-  MODULES.forEach((m) => {
-    modules[m] = {
-      coreSum: 0,
-      coreN: 0,
-      filterSum: 0,
-      filterN: 0
+// answers: { [questionId]: 0..4 }
+// tree: { nodesMap, modules }
+// return: sonuç datası
+export function evaluateResults(answers, tree) {
+  const { nodesMap, modules } = tree;
+
+  const byModule = {};
+  const allQuestionIds = Object.keys(answers);
+
+  // 1) init
+  for (const [moduleId, def] of Object.entries(modules || {})) {
+    byModule[moduleId] = {
+      moduleId,
+      title: def.title ?? moduleId,
+      thresholds: {
+        mainGateMin: def.mainGateMin,
+        filterResultMin: def.filterResultMin,
+        filterPseudoMax: def.filterPseudoMax
+      },
+
+      // raw scores
+      mainScore: 0,
+      filterScore: 0,
+
+      // max possible (answered subset değil, teorik)
+      mainMax: 0,
+      filterMax: 0,
+
+      // state
+      filterOpened: false,
+      classification: "none", // "synesthetic" | "pseudo" | "none"
+      confidence: "low", // "high" | "medium" | "low"
+
+      // diagnostics
+      answeredMainCount: 0,
+      answeredFilterCount: 0
     };
-  });
-  return { modules };
-}
-
-export function accumulateScore(scores, node, value) {
-  if (!node || node.type !== "question") return scores;
-  const mod = node.module;
-  if (!mod || !scores.modules[mod]) return scores;
-
-  const next = {
-    modules: {
-      ...scores.modules,
-      [mod]: { ...scores.modules[mod] }
-    }
-  };
-
-  if (node.role === "filter") {
-    next.modules[mod].filterSum += value;
-    next.modules[mod].filterN += 1;
-  } else {
-    next.modules[mod].coreSum += value;
-    next.modules[mod].coreN += 1;
   }
 
-  return next;
+  // 2) compute max possible per module (tree'deki node'lardan)
+  for (const node of nodesMap.values()) {
+    if (!node || node.type !== "question") continue;
+    const m = byModule[node.module];
+    if (!m) continue;
+
+    // 5'li likert => max 4 varsayıyoruz (scales değişirse burayı parametrize ederiz)
+    const maxPerQ = 4;
+
+    if (node.phase === "main") m.mainMax += maxPerQ;
+    if (node.phase === "filter") m.filterMax += maxPerQ;
+  }
+
+  // 3) sum raw scores from answers
+  for (const qid of allQuestionIds) {
+    const value = answers[qid];
+    const node = nodesMap.get(qid);
+    if (!node || node.type !== "question") continue;
+    const m = byModule[node.module];
+    if (!m) continue;
+
+    if (node.phase === "main") {
+      m.mainScore += value;
+      m.answeredMainCount += 1;
+    } else if (node.phase === "filter") {
+      m.filterScore += value;
+      m.answeredFilterCount += 1;
+    }
+  }
+
+  // 4) classify each module using normalized thresholds
+for (const m of Object.values(byModule)) {
+  const mainRatio =
+    m.mainMax > 0 ? m.mainScore / m.mainMax : 0;
+
+  const filterRatio =
+    m.filterMax > 0 ? m.filterScore / m.filterMax : 0;
+
+  m.mainRatio = mainRatio;
+  m.filterRatio = filterRatio;
+
+  // Gate: ana skor yeterli mi?
+  if (mainRatio < 0.65) {
+    m.filterOpened = false;
+    m.classification = "none";
+    m.confidence = "low";
+    continue;
+  }
+
+  m.filterOpened = true;
+
+  // Filtre yoksa (bazı modüller)
+  if (m.filterMax === 0) {
+    m.classification = "synesthetic";
+    m.confidence = "medium";
+    continue;
+  }
+
+  if (filterRatio >= 0.7) {
+    m.classification = "synesthetic";
+    m.confidence = "high";
+  } else {
+    m.classification = "pseudo";
+    m.confidence = "medium";
+  }
 }
 
-export function computeModuleSummary(modScore) {
-  const coreAvg =
-    modScore.coreN > 0 ? modScore.coreSum / modScore.coreN : null;
-  const filterAvg =
-    modScore.filterN > 0 ? modScore.filterSum / modScore.filterN : null;
 
-  // basit seviye etiketleme
-  const level =
-    coreAvg == null
-      ? "veri yok"
-      : coreAvg >= 1.25
-      ? "güçlü"
-      : coreAvg >= 0.6
-      ? "orta"
-      : "zayıf";
+  // 5) build summaries
+  const modulesArr = Object.values(byModule);
 
-  return { coreAvg, filterAvg, level };
-}
+  const dominant = modulesArr
+    .filter((m) => m.classification === "synesthetic")
+    .sort((a, b) => b.filterScore - a.filterScore);
 
+  const secondary = modulesArr
+    .filter((m) => m.classification === "pseudo")
+    .sort((a, b) => b.filterScore - a.filterScore);
 
-// scoring.js
+  const absent = modulesArr
+    .filter((m) => m.classification === "none")
+    .sort((a, b) => b.mainScore - a.mainScore);
 
-export function buildProfile(scores) {
-  const modules = scores?.modules ?? {};
-
-  // Modül özetlerini çıkar
-  const moduleSummary = Object.fromEntries(
-    Object.entries(modules).map(([key, ms]) => [key, computeModuleSummary(ms)])
-  );
-
-  // En güçlü 3 sinyali seç (coreAvg'a göre)
-  const ranked = Object.entries(moduleSummary)
-    .map(([k, v]) => ({ key: k, ...v }))
-    .filter((x) => x.coreAvg != null)
-    .sort((a, b) => (b.coreAvg ?? -999) - (a.coreAvg ?? -999));
-
-  const top = ranked.slice(0, 3);
-
-  const headline =
-    top.length === 0
-      ? "Profilin hazırlanıyor"
-      : `En baskın sinyal: ${top[0].key.replaceAll("_", " ")}`;
-
-  const summary =
-    top.length === 0
-      ? "Yeterli veri yok. Testi tamamladığında, modül bazlı bir özet göreceksin."
-      : "Yanıtlarına göre bazı modüllerde daha belirgin çağrışım sinyalleri görünüyor. Aşağı kaydırdıkça bunun ne anlama geldiğini açıklıyoruz.";
-
-  // ResultPage tags.map patlamasın diye her zaman array
-  const tags = top.length
-    ? top.map((t) => `${t.key.replaceAll("_", " ")}: ${t.level}`)
-    : [];
-
-  // StatsChart için basit bir seri: {label,value}
-  const rawScores = Object.entries(moduleSummary).map(([k, v]) => ({
-    label: k.replaceAll("_", " "),
-    value: v.coreAvg ?? 0
-  }));
+  // 6) global meta
+  const meta = computeMeta(modulesArr);
 
   return {
-    headline,
-    summary,
-    tags,
-    rawScores,
-    modules: moduleSummary
+    meta,
+    byModule,
+    modulesArr,
+    dominant,
+    secondary,
+    absent
+  };
+}
+
+function computeMeta(modulesArr) {
+  // Basit ama işe yarar “güvenirlik/yoğunluk” metrikleri
+  const answeredMain = modulesArr.reduce((s, m) => s + m.answeredMainCount, 0);
+  const answeredFilter = modulesArr.reduce((s, m) => s + m.answeredFilterCount, 0);
+
+  const synCount = modulesArr.filter((m) => m.classification === "synesthetic").length;
+  const pseudoCount = modulesArr.filter((m) => m.classification === "pseudo").length;
+
+  const intensityRaw =
+    modulesArr.reduce((s, m) => s + m.mainScore + m.filterScore, 0);
+
+  // Normalize: teorik max’a böl (0..1)
+  const maxRaw =
+    modulesArr.reduce((s, m) => s + m.mainMax + m.filterMax, 0) || 1;
+
+  const intensity = intensityRaw / maxRaw;
+
+  const reliability =
+    answeredMain >= 10 ? (answeredFilter > 0 ? "high" : "medium") : "low";
+
+  return {
+    answeredMain,
+    answeredFilter,
+    synCount,
+    pseudoCount,
+    intensity, // 0..1
+    reliability
   };
 }

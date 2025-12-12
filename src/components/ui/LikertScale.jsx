@@ -1,35 +1,32 @@
+// src/components/ui/LikertScale.jsx
 import React from "react";
-import { LikertScale as Likert } from "../../logic/behaviourTreeEngine";
+import { LikertScale } from "../../logic/scales";
 
-const VALUES = [
-  Likert.STRONGLY_DISAGREE,
-  Likert.DISAGREE,
-  Likert.NEUTRAL,
-  Likert.AGREE,
-  Likert.STRONGLY_AGREE
-];
+function LikertScaleComponent({ value, onChange }) {
+  const { min, max, labels } = LikertScale;
 
-function LikertScale({ value, onChange }) {
+  const points = [];
+  for (let i = min; i <= max; i++) points.push(i);
+
   return (
-    <div className="likert-strip">
-      <div className="likert-end">Asla</div>
+    <div className="likert-scale centered">
+      <span className="likert-label left">{labels.min}</span>
 
-      <div className="likert-dots" role="radiogroup" aria-label="Likert scale">
-        {VALUES.map((v, idx) => (
+      <div className="likert-buttons">
+        {points.map((v) => (
           <button
             key={v}
             type="button"
-            className={"likert-dot" + (value === v ? " active" : "") + ` s${idx + 1}`}
-            aria-checked={value === v}
-            role="radio"
+            className={`likert-dot size-${v} ${value === v ? "active" : ""}`}
             onClick={() => onChange(v)}
+            aria-pressed={value === v}
           />
         ))}
       </div>
 
-      <div className="likert-end">Kesinlikle</div>
+      <span className="likert-label right">{labels.max}</span>
     </div>
   );
 }
 
-export default LikertScale;
+export default LikertScaleComponent;
