@@ -1,63 +1,116 @@
+const MODULES = [
+  "grapheme_color",
+  "sound_color",
+  "time_space",
+  "sound_taste_smell",
+  "mirror_touch",
+  "person_color_shape",
+  "taste_color_shape",
+  "smell_color_shape",
+  "emotion_color_shape",
+  "misophonia"
+];
+
 export function createEmptyScores() {
-  return {
-    SENSORY_INTENSITY: 0,
-    INTROVERSION: 0,
-    COLOR_SOUND_LINK: 0,
-    NEUTRALITY: 0
-  };
+  const modules = {};
+  MODULES.forEach((m) => {
+    modules[m] = {
+      coreSum: 0,
+      coreN: 0,
+      filterSum: 0,
+      filterN: 0
+    };
+  });
+  return { modules };
 }
 
-export function accumulateScore(scores, questionNode, answerValue) {
-  if (!questionNode.dimension || questionNode.type !== "question") return scores;
-  const weight = questionNode.weight ?? 1;
-  const dim = questionNode.dimension;
-  return {
-    ...scores,
-    [dim]: (scores[dim] ?? 0) + answerValue * weight
+export function accumulateScore(scores, node, value) {
+  if (!node || node.type !== "question") return scores;
+  const mod = node.module;
+  if (!mod || !scores.modules[mod]) return scores;
+
+  const next = {
+    modules: {
+      ...scores.modules,
+      [mod]: { ...scores.modules[mod] }
+    }
   };
+
+  if (node.role === "filter") {
+    next.modules[mod].filterSum += value;
+    next.modules[mod].filterN += 1;
+  } else {
+    next.modules[mod].coreSum += value;
+    next.modules[mod].coreN += 1;
+  }
+
+  return next;
 }
+
+export function computeModuleSummary(modScore) {
+  const coreAvg =
+    modScore.coreN > 0 ? modScore.coreSum / modScore.coreN : null;
+  const filterAvg =
+    modScore.filterN > 0 ? modScore.filterSum / modScore.filterN : null;
+
+  // basit seviye etiketleme
+  const level =
+    coreAvg == null
+      ? "veri yok"
+      : coreAvg >= 1.25
+      ? "güçlü"
+      : coreAvg >= 0.6
+      ? "orta"
+      : "zayıf";
+
+  return { coreAvg, filterAvg, level };
+}
+
+
+// scoring.js
 
 export function buildProfile(scores) {
-  const entries = Object.entries(scores);
-  const sorted = [...entries].sort((a, b) => b[1] - a[1]);
+  const modules = scores?.modules ?? {};
 
-  const dominant = sorted[0] ?? ["NEUTRALITY", 0];
+  // Modül özetlerini çıkar
+  const moduleSummary = Object.fromEntries(
+    Object.entries(modules).map(([key, ms]) => [key, computeModuleSummary(ms)])
+  );
 
-  let headline = "";
-  let summary = "";
-  const tags = [];
+  // En güçlü 3 sinyali seç (coreAvg'a göre)
+  const ranked = Object.entries(moduleSummary)
+    .map(([k, v]) => ({ key: k, ...v }))
+    .filter((x) => x.coreAvg != null)
+    .sort((a, b) => (b.coreAvg ?? -999) - (a.coreAvg ?? -999));
 
-  switch (dominant[0]) {
-    case "COLOR_SOUND_LINK":
-      headline = "Renk–Ses Dokumacısı";
-      summary =
-        "Sesleri yalnızca duymuyor, aynı zamanda görüyorsun. Dünyayı çok kanallı bir tuval gibi algılıyorsun.";
-      tags.push("ses-renk eşleşmesi", "yoğun görsel düşünme");
-      break;
-    case "SENSORY_INTENSITY":
-      headline = "Yüksek Duyusal Hassasiyet";
-      summary =
-        "Çevresel uyaranlar sana güçlü ve detaylı ulaşıyor. Bu hem yaratıcılık kaynağı hem de zaman zaman yorgunluk sebebi.";
-      tags.push("yüksek hassasiyet", "derin işleme");
-      break;
-    case "INTROVERSION":
-      headline = "İçsel Akış İzleyicisi";
-      summary =
-        "Dış gürültüden çok iç dünyana yaslanıyorsun. Sessiz alanlar, duyusal dokunuşların netleşmesine yardımcı oluyor.";
-      tags.push("içe dönüklük", "odaklanmış algı");
-      break;
-    default:
-      headline = "Dengeli Algı Profili";
-      summary =
-        "Duyusal uyaranlar seni ne boğuyor ne de aşırı tetikliyor. Algın, bağlama göre şekil değiştirebilen esnek bir yapıda.";
-      tags.push("denge", "uyarlanabilirlik");
-      break;
-  }
+  const top = ranked.slice(0, 3);
+
+  const headline =
+    top.length === 0
+      ? "Profilin hazırlanıyor"
+      : `En baskın sinyal: ${top[0].key.replaceAll("_", " ")}`;
+
+  const summary =
+    top.length === 0
+      ? "Yeterli veri yok. Testi tamamladığında, modül bazlı bir özet göreceksin."
+      : "Yanıtlarına göre bazı modüllerde daha belirgin çağrışım sinyalleri görünüyor. Aşağı kaydırdıkça bunun ne anlama geldiğini açıklıyoruz.";
+
+  // ResultPage tags.map patlamasın diye her zaman array
+  const tags = top.length
+    ? top.map((t) => `${t.key.replaceAll("_", " ")}: ${t.level}`)
+    : [];
+
+  // StatsChart için basit bir seri: {label,value}
+  const rawScores = Object.entries(moduleSummary).map(([k, v]) => ({
+    label: k.replaceAll("_", " "),
+    value: v.coreAvg ?? 0
+  }));
 
   return {
     headline,
     summary,
     tags,
-    rawScores: scores
+    rawScores,
+    modules: moduleSummary
   };
 }

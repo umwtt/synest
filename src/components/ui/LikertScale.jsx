@@ -1,32 +1,33 @@
 import React from "react";
 import { LikertScale as Likert } from "../../logic/behaviourTreeEngine";
 
-const OPTIONS = [
-  { label: "Asla", value: Likert.STRONGLY_DISAGREE },
-  { label: "Hayır", value: Likert.DISAGREE },
-  { label: "Nötr", value: Likert.NEUTRAL },
-  { label: "Evet", value: Likert.AGREE },
-  { label: "Kesinlikle", value: Likert.STRONGLY_AGREE }
+const VALUES = [
+  Likert.STRONGLY_DISAGREE,
+  Likert.DISAGREE,
+  Likert.NEUTRAL,
+  Likert.AGREE,
+  Likert.STRONGLY_AGREE
 ];
 
 function LikertScale({ value, onChange }) {
   return (
-    <div className="likert-row">
-      <span className="likert-label">Seviyeni işaretle</span>
-      <div className="likert-buttons">
-        {OPTIONS.map((opt) => (
+    <div className="likert-strip">
+      <div className="likert-end">Asla</div>
+
+      <div className="likert-dots" role="radiogroup" aria-label="Likert scale">
+        {VALUES.map((v, idx) => (
           <button
-            key={opt.value}
+            key={v}
             type="button"
-            className={
-              "likert-btn" + (value === opt.value ? " active" : "")
-            }
-            onClick={() => onChange(opt.value)}
-          >
-            {opt.label}
-          </button>
+            className={"likert-dot" + (value === v ? " active" : "") + ` s${idx + 1}`}
+            aria-checked={value === v}
+            role="radio"
+            onClick={() => onChange(v)}
+          />
         ))}
       </div>
+
+      <div className="likert-end">Kesinlikle</div>
     </div>
   );
 }

@@ -22,6 +22,9 @@ function App() {
 
   return (
     <div className="app-root">
+      {/* GLOBAL WALLPAPER */}
+      <div className="sini-bg" />
+
       <Shell
         navItems={NAV_ITEMS}
         activePath={location.pathname}
@@ -39,5 +42,6 @@ function App() {
     </div>
   );
 }
+
 
 export default App;

@@ -1,13 +1,45 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loadTree, getNextNodeId } from "../logic/behaviourTreeEngine";
-import {
-  createEmptyScores,
-  accumulateScore
-} from "../logic/scoring";
+import { loadTree, resolveNextId } from "../logic/behaviourTreeEngine";
+import { createEmptyScores, accumulateScore } from "../logic/scoring";
 import QuestionCard from "../components/ui/QuestionCard";
+import { estimateRemainingQuestions } from "../logic/progress";
 
 const tree = loadTree();
+
+function nextQuestionIdFrom(currentQuestionId, answers, nodesMap) {
+  let safety = 0;
+
+  const currentNode = nodesMap.get(currentQuestionId);
+  if (!currentNode) return null;
+  if (currentNode.type !== "question") return null;
+
+  const currentValue = answers[currentQuestionId];
+  const firstNext = resolveNextId(currentNode, currentValue, { answers, nodesMap });
+  if (!firstNext) return null;
+
+  let curId = firstNext;
+
+  while (safety < 50) {
+    safety += 1;
+    const node = nodesMap.get(curId);
+    if (!node) return null;
+
+    if (node.type === "question") return curId;
+
+    if (node.type === "gate") {
+      const nextId = resolveNextId(node, null, { answers, nodesMap });
+      if (!nextId) return null;
+      curId = nextId;
+      continue;
+    }
+
+    if (node.type === "end") return null;
+    return null;
+  }
+
+  return null;
+}
 
 function recomputeScoresFromAnswers(historyIds, answers, nodesMap) {
   let acc = createEmptyScores();
@@ -34,12 +66,8 @@ function ConsentDialog({ onAccept }) {
         </p>
         <ul className="consent-list">
           <li>Verilerin bu sürümde sunucuya gönderilmez, yalnızca tarayıcında işlenir.</li>
-          <li>
-            Rahatsız olduğun anda testi bırakabilir veya tarayıcı sekmesini kapatabilirsin.
-          </li>
-          <li>
-            Sonuçlar &quot;kesin doğrular&quot; değil; duyusal eğilimlerine dair ipuçlarıdır.
-          </li>
+          <li>Rahatsız olduğun anda testi bırakabilir veya tarayıcı sekmesini kapatabilirsin.</li>
+          <li>Sonuçlar “kesin doğrular” değil; duyusal eğilimlerine dair ipuçlarıdır.</li>
         </ul>
         <div className="consent-actions">
           <button
@@ -49,11 +77,7 @@ function ConsentDialog({ onAccept }) {
           >
             Geri dön
           </button>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={onAccept}
-          >
+          <button type="button" className="btn-primary" onClick={onAccept}>
             Onaylıyorum ve teste başla
           </button>
         </div>
@@ -65,19 +89,31 @@ function ConsentDialog({ onAccept }) {
 function TestPage() {
   const navigate = useNavigate();
 
-  // Soru akışı
-  const [history, setHistory] = useState([tree.startNodeId]); // sıra ile soru id'leri
-  const [answers, setAnswers] = useState({}); // { [questionId]: value }
-  const [scores, setScores] = useState(createEmptyScores());
+  const [history, setHistory] = useState([tree.startNodeId]);
+  const [answers, setAnswers] = useState({});
+  const [scores, setScores] = useState(createEmptyScores()); // şimdilik sadece sonuç için
   const [consentGiven, setConsentGiven] = useState(false);
 
-  const currentId = history[history.length - 1];
-  const currentNode = useMemo(
-    () => tree.nodesMap.get(currentId),
-    [currentId]
-  );
-  const currentAnswer = answers[currentId] ?? null;
   const step = history.length - 1;
+  const currentId = history[step];
+
+  const currentNode = useMemo(() => tree.nodesMap.get(currentId), [currentId]);
+  const currentAnswer = answers[currentId] ?? null;
+
+  // ✅ Progress hesapları (component içinde)
+  const answeredCount = useMemo(() => {
+    let c = 0;
+    for (const v of Object.values(answers)) if (v != null) c += 1;
+    return c;
+  }, [answers]);
+
+  const estimatedRemaining = useMemo(
+    () => estimateRemainingQuestions(history, tree.nodesMap),
+    [history]
+  );
+
+  const progressExact =
+    answeredCount / (answeredCount + (estimatedRemaining || 0) || 1);
 
   function goToResult(finalScores, finalAnswers) {
     navigate("/result", {
@@ -91,27 +127,27 @@ function TestPage() {
   function handleSubmitAnswer() {
     if (!consentGiven) return;
     if (!currentNode || currentNode.type !== "question") return;
-    if (currentAnswer == null) return;
+
+    const v = currentAnswer;
+    if (v == null) return;
 
     const nodesMap = tree.nodesMap;
 
-    // Mevcut history + cevaplarla skoru baştan hesapla
-    const baseScores = recomputeScoresFromAnswers(history, answers, nodesMap);
+    // ✅ kritik: local answers
+    const nextAnswers = { ...answers, [currentId]: v };
 
-    const nextId = getNextNodeId(currentNode, currentAnswer);
-    const nextNode = nextId ? nodesMap.get(nextId) : null;
+    const nextId = nextQuestionIdFrom(currentId, nextAnswers, nodesMap);
 
-    if (!nextNode || nextNode.type === "end") {
-      // Akış burada bitiyor, elindeki cevaplarla skoru yeniden hesapla ve sonuç sayfasına git
-      const finalScores = recomputeScoresFromAnswers(history, answers, nodesMap);
-      goToResult(finalScores, answers);
+    if (!nextId) {
+      const finalScores = recomputeScoresFromAnswers(history, nextAnswers, nodesMap);
+      goToResult(finalScores, nextAnswers);
       return;
     }
 
-    // Devam eden soru: yeni history'ye nextId'yi ekle ve skoru tekrar hesapla
     const newHistory = [...history, nextId];
-    const newScores = recomputeScoresFromAnswers(newHistory, answers, nodesMap);
+    const newScores = recomputeScoresFromAnswers(newHistory, nextAnswers, nodesMap);
 
+    setAnswers(nextAnswers);
     setHistory(newHistory);
     setScores(newScores);
   }
@@ -135,11 +171,7 @@ function TestPage() {
 
   function handleChangeAnswer(value) {
     if (!currentNode || currentNode.type !== "question") return;
-    const updatedAnswers = {
-      ...answers,
-      [currentId]: value
-    };
-    setAnswers(updatedAnswers);
+    setAnswers((prev) => ({ ...prev, [currentId]: value }));
   }
 
   if (!currentNode) {
@@ -152,16 +184,37 @@ function TestPage() {
 
   return (
     <section className="hero-center" style={{ marginTop: 16 }}>
-      <div className="hero-badge">
-        Sinestezi Testi · adım {step + 1}
-      </div>
+      <div className="hero-badge">Sinestezi Testi · adım {step + 1}</div>
+
       <h2 className="hero-title">
         Duyuların <span className="serif">birbirine karışırken</span>
       </h2>
+
       <p className="hero-sub">
         Her soruda dürüst olman, sonuçların anlamlı olması için kritik. Yanıtların,
         duyusal algı örüntülerini çözen bir davranış ağacına işleniyor.
       </p>
+
+      {/* Progress'i onaydan sonra göstermek daha temiz */}
+      {consentGiven && (
+        <div className="test-progress">
+          <div className="test-progress-track">
+            <div
+              className="test-progress-exact"
+              style={{ width: `${Math.min(progressExact * 100, 100)}%` }}
+            />
+            <div
+              className="test-progress-estimate"
+              style={{ width: `${Math.min((progressExact + 0.12) * 100, 100)}%` }}
+            />
+          </div>
+
+          <div className="test-progress-meta">
+            <span>{answeredCount} soru yanıtlandı</span>
+            <span>≈ {estimatedRemaining} soru kaldı</span>
+          </div>
+        </div>
+      )}
 
       {consentGiven && currentNode.type === "question" && (
         <>
@@ -171,6 +224,7 @@ function TestPage() {
             onChange={handleChangeAnswer}
             index={step}
           />
+
           <div
             style={{
               marginTop: 18,
@@ -188,6 +242,7 @@ function TestPage() {
             >
               Önceki soru
             </button>
+
             <button
               type="button"
               className="btn-primary"
@@ -200,9 +255,7 @@ function TestPage() {
         </>
       )}
 
-      {!consentGiven && (
-        <ConsentDialog onAccept={() => setConsentGiven(true)} />
-      )}
+      {!consentGiven && <ConsentDialog onAccept={() => setConsentGiven(true)} />}
     </section>
   );
 }

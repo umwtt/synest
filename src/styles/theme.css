@@ -1,20 +1,29 @@
 :root {
-  --bg-main: #060715;
-  --bg-main-alt: #0b1020;
-  --card-bg-top: #624a4a;
-  --card-bg-bottom: #161069;
-  --accent: #8b5cff;
-  --accent-soft: rgba(139, 92, 255, 0.4);
-  --accent-secondary: #4f9cff;
-  --accent-gradient: linear-gradient(135deg, #8b5cff, #f472ff);
-  --text-main: #081018;
-  --text-muted: #6b7680;
-  --radius-xl: 36px;
-  --shadow-soft: 0 40px 80px rgba(0, 0, 0, 0.55);
-  --transition-fast: 160ms ease-out;
+  --bg: #070912;
+  --panel: rgba(10, 12, 22, 0.55);
+  --panel-strong: rgba(10, 12, 22, 0.78);
+
+  --ink: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.68);
+  --hairline: rgba(255, 255, 255, 0.14);
+
+  /* Sinipalet pastel aksanları */
+  --p1: #ffd6e7; /* cotton pink */
+  --p2: #c7f0ff; /* baby blue */
+  --p3: #c9ffe1; /* mint */
+  --p4: #e8d7ff; /* lavender */
+  --p5: #ffe9b8; /* butter */
+
+  --accent: #e8d7ff;
+  --accent2: #c7f0ff;
+
+  --radius-xl: 34px;
+  --radius-lg: 22px;
+  --shadow: 0 40px 120px rgba(0, 0, 0, 0.65);
+
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Inter", "Segoe UI", sans-serif;
-  --font-serif: "Georgia", "Times New Roman", serif;
+  --font-serif: ui-serif, "Georgia", "Times New Roman", serif;
 }
 
 
@@ -22,13 +31,16 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--font-sans);
-  background:
-    radial-gradient(circle at 0% 0%, #3b1f5f 0, transparent 55%),
-    radial-gradient(circle at 100% 0%, #223f7b 0, transparent 55%),
-    radial-gradient(circle at 50% 100%, #120c33 0, #050610 60%, #020309 100%);
-  color: white;
+  color: var(--ink);
+  background: radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 45%),
+              radial-gradient(circle at 10% 10%, rgba(232, 215, 255, 0.18), transparent 55%),
+              radial-gradient(circle at 90% 15%, rgba(199, 240, 255, 0.16), transparent 55%),
+              radial-gradient(circle at 30% 90%, rgba(201, 255, 225, 0.14), transparent 55%),
+              radial-gradient(circle at 80% 85%, rgba(255, 214, 231, 0.12), transparent 55%),
+              #050610;
   -webkit-font-smoothing: antialiased;
 }
+
 
 
 *,
